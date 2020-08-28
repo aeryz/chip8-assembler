@@ -11,6 +11,8 @@ pub enum Token<'a> {
     DT,
     ST,
     KEY,
+    F,
+    B,
     NEWLINE,
     MINUS,
     COMMA,

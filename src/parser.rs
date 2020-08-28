@@ -29,6 +29,14 @@ impl<'a> Parser<'a> {
         parse_fns.insert("xor", Parser::parse_ins_xor);
         parse_fns.insert("sub", Parser::parse_ins_sub);
         parse_fns.insert("subn", Parser::parse_ins_subn);
+        parse_fns.insert("shl", Parser::parse_ins_shl);
+        parse_fns.insert("shr", Parser::parse_ins_shr);
+        parse_fns.insert("ld", Parser::parse_ins_ld);
+        parse_fns.insert("add", Parser::parse_ins_add);
+        parse_fns.insert("rnd", Parser::parse_ins_rnd);
+        parse_fns.insert("drw", Parser::parse_ins_drw);
+        parse_fns.insert("skp", Parser::parse_ins_skp);
+        parse_fns.insert("sknp", Parser::parse_ins_sknp);
 
         Self {
             lexer,
@@ -94,6 +102,15 @@ impl<'a> Parser<'a> {
         Ok(opcode + lhs_reg * 0x100 + rhs_reg * 0x10)
     }
 
+    #[inline]
+    fn parse_layout_reg_byte(&mut self, opcode: u16) -> ParseResult<u16> {
+        let register = self.expect_register()?;
+        self.expect_token(Token::COMMA)?;
+        let byte = self.expect_byte()?;
+
+        Ok(opcode + register * 0x100 + byte)
+    }
+
     fn parse_layout_addr_or_reg(&mut self, opcodes: (u16, u16)) -> ParseResult<u16> {
         match self.lexer.next_token()? {
             Token::ADDR(addr) => Ok(opcodes.0 + addr),
@@ -124,6 +141,20 @@ impl<'a> Parser<'a> {
         match self.lexer.next_token()? {
             Token::ADDR(addr) => Ok(addr),
             token => Err(format!("Expected Token::ADDR, got {:?}", token).into()),
+        }
+    }
+
+    fn expect_byte(&mut self) -> ParseResult<u16> {
+        match self.lexer.next_token()? {
+            Token::BYTE(byte) => Ok(byte),
+            token => Err(format!("Expected Token::BYTE, got {:?}", token).into()),
+        }
+    }
+
+    fn expect_nibble(&mut self) -> ParseResult<u16> {
+        match self.lexer.next_token()? {
+            Token::NIBBLE(nibble) => Ok(nibble),
+            token => Err(format!("Expected Token::NIBBLE, got {:?}", token).into()),
         }
     }
 
@@ -185,6 +216,70 @@ impl<'a> Parser<'a> {
 
     fn parse_ins_shl(&mut self) -> ParseResult<u16> {
         self.parse_layout_reg_reg(0x800E)
+    }
+
+    fn parse_ins_rnd(&mut self) -> ParseResult<u16> {
+        self.parse_layout_reg_byte(0xC000)
+    }
+
+    fn parse_ins_skp(&mut self) -> ParseResult<u16> {
+        Ok(0xE09E + 0x100 * self.expect_register()?)
+    }
+
+    fn parse_ins_sknp(&mut self) -> ParseResult<u16> {
+        Ok(0xE0A1 + 0x100 * self.expect_register()?)
+    }
+
+    fn parse_ins_drw(&mut self) -> ParseResult<u16> {
+        let lhs_reg = self.expect_register()?;
+        self.expect_token(Token::COMMA)?;
+        let rhs_reg = self.expect_register()?;
+        self.expect_token(Token::COMMA)?;
+        let nibble = self.expect_nibble()?;
+
+        Ok(0xD000 + 0x100 * lhs_reg + 0x10 * rhs_reg + nibble)
+    }
+
+    fn parse_ins_add(&mut self) -> ParseResult<u16> {
+        match self.lexer.next_token()? {
+            Token::INDEX => Ok(0xF01E + 0x100 * self.expect_register()?),
+            Token::REGISTER(register) => {
+                match self.lexer.next_token()? {
+                    Token::REGISTER(reg) => Ok(0x8004 + 0x100 * register + 0x10 * reg),
+                    Token::BYTE(byte) => Ok(0x7000 + 0x100 * register + byte),
+                    token => Err(format!("Unexpected token {:?}", token).into()),
+                }
+            }
+            token => Err(format!("Unexpected token {:?}", token).into()),
+        }
+    }
+
+    fn parse_ins_ld(&mut self) -> ParseResult<u16> {
+        match self.lexer.next_token()? {
+            Token::REGISTER(reg) => {
+                match self.lexer.next_token()? {
+                    Token::DT => Ok(0xF007 + reg),
+                    Token::KEY => Ok(0xF00A + reg),
+                    Token::LBRACKET => {
+                        self.expect_token(Token::INDEX)?;
+                        self.expect_token(Token::RBRACKET)?;
+                        Ok(0xF065 + 0x100 * self.expect_register()?)
+                    },
+                    token => Err(format!("Unexpected token {:?}", token).into())
+                }
+            }
+            Token::F => Ok(0xF029 + 0x100 * self.expect_register()?),
+            Token::B => Ok(0xF033 + 0x100 * self.expect_register()?),
+            Token::DT => Ok(0xF015 + 0x100 * self.expect_register()?),
+            Token::ST => Ok(0xF018 + 0x100 * self.expect_register()?),
+            Token::LBRACKET => {
+                self.expect_token(Token::INDEX)?;
+                self.expect_token(Token::RBRACKET)?;
+                Ok(0xF055 + 0x100 * self.expect_register()?)
+            }
+            Token::INDEX => Ok(0xA000 + self.expect_addr()?),
+            token => Err(format!("Unexpected token {:?}", token).into()),
+        }
     }
 
 }
