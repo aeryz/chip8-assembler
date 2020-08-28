@@ -49,6 +49,7 @@ impl<'a> Lexer<'a> {
         let _ = self.read_char();
         Ok(token)
     }
+
 }
 
 impl<'a> Lexer<'a> {
