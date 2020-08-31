@@ -58,6 +58,7 @@ impl<'a> Parser<'a> {
                     let res = parse_fn.unwrap()(&mut self)?;
                     self.opcodes.push(res);
                 }
+                Token::NEWLINE => {continue;}
                 _ => return Err(format!("Expected instruction, got {:?}", token).into()),
             }
             match self.lexer.next_token()? {
@@ -191,7 +192,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_ins_or(&mut self) -> ParseResult<u16> {
-        self.parse_layout_reg_reg(0x8000)
+        self.parse_layout_reg_reg(0x8001)
     }
 
     fn parse_ins_xor(&mut self) -> ParseResult<u16> {
@@ -242,8 +243,12 @@ impl<'a> Parser<'a> {
 
     fn parse_ins_add(&mut self) -> ParseResult<u16> {
         match self.lexer.next_token()? {
-            Token::INDEX => Ok(0xF01E + 0x100 * self.expect_register()?),
+            Token::INDEX => {
+                self.expect_token(Token::COMMA)?;
+                Ok(0xF01E + 0x100 * self.expect_register()?)
+            }
             Token::REGISTER(register) => {
+                self.expect_token(Token::COMMA)?;
                 match self.lexer.next_token()? {
                     Token::REGISTER(reg) => Ok(0x8004 + 0x100 * register + 0x10 * reg),
                     Token::BYTE(byte) => Ok(0x7000 + 0x100 * register + byte),
@@ -257,27 +262,44 @@ impl<'a> Parser<'a> {
     fn parse_ins_ld(&mut self) -> ParseResult<u16> {
         match self.lexer.next_token()? {
             Token::REGISTER(reg) => {
+                self.expect_token(Token::COMMA)?;
                 match self.lexer.next_token()? {
-                    Token::DT => Ok(0xF007 + reg),
-                    Token::KEY => Ok(0xF00A + reg),
+                    Token::DT => Ok(0xF007 + 0x100 * reg),
+                    Token::KEY => Ok(0xF00A + 0x100 * reg),
                     Token::LBRACKET => {
                         self.expect_token(Token::INDEX)?;
                         self.expect_token(Token::RBRACKET)?;
-                        Ok(0xF065 + 0x100 * self.expect_register()?)
+                        Ok(0xF065 + 0x100 * reg)
                     },
                     token => Err(format!("Unexpected token {:?}", token).into())
                 }
             }
-            Token::F => Ok(0xF029 + 0x100 * self.expect_register()?),
-            Token::B => Ok(0xF033 + 0x100 * self.expect_register()?),
-            Token::DT => Ok(0xF015 + 0x100 * self.expect_register()?),
-            Token::ST => Ok(0xF018 + 0x100 * self.expect_register()?),
+            Token::F => { 
+                self.expect_token(Token::COMMA)?;
+                Ok(0xF029 + 0x100 * self.expect_register()?)
+            }
+            Token::B => { 
+                self.expect_token(Token::COMMA)?;
+                Ok(0xF033 + 0x100 * self.expect_register()?)
+            }
+            Token::DT => {
+                self.expect_token(Token::COMMA)?;
+                Ok(0xF015 + 0x100 * self.expect_register()?)
+            }
+            Token::ST => {
+                self.expect_token(Token::COMMA)?;
+                Ok(0xF018 + 0x100 * self.expect_register()?)
+            }
             Token::LBRACKET => {
                 self.expect_token(Token::INDEX)?;
                 self.expect_token(Token::RBRACKET)?;
+                self.expect_token(Token::COMMA)?;
                 Ok(0xF055 + 0x100 * self.expect_register()?)
             }
-            Token::INDEX => Ok(0xA000 + self.expect_addr()?),
+            Token::INDEX => {
+                self.expect_token(Token::COMMA)?;
+                Ok(0xA000 + self.expect_addr()?)
+            }
             token => Err(format!("Unexpected token {:?}", token).into()),
         }
     }
@@ -299,9 +321,27 @@ mod tests {
     }
 
     #[test]
+    fn test_ins_ret() {
+        let parser = prepare_parser("ret");
+        assert_eq!(parser.parse().unwrap(), vec![0x00ee]);
+    } 
+
+    #[test]
     fn test_ins_sys() {
         let parser = prepare_parser("sys @1c2");
         assert_eq!(parser.parse().unwrap(), vec![0x01c2]);
+    }
+
+    #[test]
+    fn test_ins_jp() {
+        let parser = prepare_parser("jp @fff");
+        assert_eq!(parser.parse().unwrap(), vec![0x1fff]);
+    }
+
+    #[test]
+    fn test_ins_call() {
+        let parser = prepare_parser("call @abc");
+        assert_eq!(parser.parse().unwrap(), vec![0x2abc]);
     }
 
     #[test]
@@ -309,4 +349,103 @@ mod tests {
         let parser = prepare_parser("se v1, #12\n se v2, v3");
         assert_eq!(parser.parse().unwrap(), vec![0x3112, 0x5230]);
     }
+
+    #[test]
+    fn test_ins_sne() {
+        let parser = prepare_parser("sne v2, #13\n sne v3, v4");
+        assert_eq!(parser.parse().unwrap(), vec![0x4213, 0x9340]);
+    }
+
+    #[test]
+    fn test_ins_and() {
+        let parser = prepare_parser("and vf,      v6");
+        assert_eq!(parser.parse().unwrap(), vec![0x8f62]);
+    }
+
+    #[test]
+    fn test_ins_or() {
+        let parser = prepare_parser("or ve,      vb");
+        assert_eq!(parser.parse().unwrap(), vec![0x8eb1]);
+    }
+
+    #[test]
+    fn test_ins_xor() {
+        let parser = prepare_parser("xor v3, v4");
+        assert_eq!(parser.parse().unwrap(), vec![0x8343]);
+    }
+
+    #[test]
+    fn test_ins_sub() {
+        let parser = prepare_parser("sub v1, v2");
+        assert_eq!(parser.parse().unwrap(), vec![0x8125]);
+    }
+
+    #[test]
+    fn test_ins_subn() {
+        let parser = prepare_parser("subn v1, v2");
+        assert_eq!(parser.parse().unwrap(), vec![0x8127]);
+    }
+
+    #[test]
+    fn test_ins_shl() {
+        let parser = prepare_parser("shl v1, v2");
+        assert_eq!(parser.parse().unwrap(), vec![0x812e]);
+    }
+
+    #[test]
+    fn test_ins_shr() {
+        let parser = prepare_parser("shr v1, v2");
+        assert_eq!(parser.parse().unwrap(), vec![0x8126]);
+    }
+
+    #[test]
+    fn test_ins_ld() {
+        let parser = prepare_parser("
+                                    ld v1, dt
+                                    ld v2, k
+                                    ld dt, v3
+                                    ld st, v4
+                                    ld f, v5
+                                    ld b, v6
+                                    ld [i], v7
+                                    ld v8, [i]
+                                    ld i, @cad");
+        assert_eq!(parser.parse().unwrap(), vec![
+        0xF107, 0xf20a, 0xf315, 0xf418, 0xf529, 0xf633, 0xf755, 0xf865, 0xacad]);
+    }
+
+    #[test]
+    fn test_ins_add() {
+        let parser = prepare_parser("
+                                    add v1, #dd
+                                    add v2, v3
+                                    add i, v6");
+        assert_eq!(parser.parse().unwrap(),
+        vec![0x71dd, 0x8234, 0xf61e]);
+    }
+
+    #[test]
+    fn test_ins_rnd() {
+        let parser = prepare_parser("rnd vc, #01");
+        assert_eq!(parser.parse().unwrap(), vec![0xcc01]);
+    }
+
+    #[test]
+    fn test_ins_drw() {
+        let parser = prepare_parser("drw v1, v2, $d");
+        assert_eq!(parser.parse().unwrap(), vec![0xd12d]);
+    }
+
+    #[test]
+    fn test_ins_skp() {
+        let parser = prepare_parser("skp vd");
+        assert_eq!(parser.parse().unwrap(), vec![0xed9e]);
+    }
+
+    #[test]
+    fn test_ins_sknp() {
+        let parser = prepare_parser("sknp vd");
+        assert_eq!(parser.parse().unwrap(), vec![0xeda1]);
+    }
+
 }

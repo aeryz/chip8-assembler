@@ -43,6 +43,7 @@ impl Instructions {
         ins.insert("and");
         ins.insert("sub");
         ins.insert("xor");
+        ins.insert("shl");
         ins.insert("shr");
         ins.insert("subn");
         ins.insert("rnd");
@@ -61,8 +62,10 @@ impl<'a> Token<'a> {
             ident if inst.0.contains(ident) => Ok(Token::INSTRUCTION(ident)),
             "i" => Ok(Token::INDEX),
             "k" => Ok(Token::KEY),
-            "dT" => Ok(Token::DT),
+            "dt" => Ok(Token::DT),
             "st" => Ok(Token::ST),
+            "f" => Ok(Token::F),
+            "b" => Ok(Token::B),
             reg_str if ident.chars().nth(0) == Some('v') => {
                 if reg_str.len() != 2 {
                     return Err(format!("Invalid register {}", reg_str).into());
